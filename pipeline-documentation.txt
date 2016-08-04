@@ -1,0 +1,102 @@
+PCAWG Validation-63 Set Pipeline Documentation
+
+Software versions:
+
+SGA: 
+   fabc28ac, Sept 17, for all steps including (old) graph concordance
+   f1c64dd1, Jan 21, for probabilistic graph concordance
+
+From sga-extra: (811588ba)
+    samtools: https://github.com/lh3/samtools - commit  6bbe1609, Feb 28 2012
+    freebayes: https://github.com/ekg/freebayes - commit 4233a239 - Oct 7, 2014
+    bcftools: https://github.com/samtools/bcftools - commit 3d5d3d9d- Oct 24, 2014
+    vcflib: https://github.com/ekg/vcflib - commit 045daad7 - Nov 4, 2014
+    bam2fastq: https://github.com/jts/bam2fastq - commit 3b2fb6fe - Apr 11, 2014
+
+Other:
+    bamaddrg: https://github.com/ekg/bamaddrg - commit 3fccbf05 - May 26, 2012 
+
+Data used:
+    reference: hs37d5 /.mounts/labs/simpsonlab/data/references/hs37d5.pp.fa
+    dbSNP:  dbSNP_BUILD_ID=142, reference=GRCh37.p13, fileDate=20141009
+    Cosmic: source=COSMICv71, reference=GRCh37, fileDate=20141104
+
+
+Software pipeline:
+
+Indexing 
+
+BAM files are converted to FASTQ files using bam2fastq, and run through
+sga prepreprocess, in paired-end mode (--pe-mode 2).
+
+FM indices indices are generated from the FASTQ files using sga index -a
+ropebwt --no-reverse --no-sai, and SAI indices generated using sga gen-ssa
+--sai-only.
+
+SGA calls
+
+SGA graph difference calls are made with sga graph-diff, with parameters
+--min-dbg-count 2 -k 55 -x 4 -a debruijn.
+
+Freebayes calls
+
+Thirteen samples (listed at end) used the same read group name for both the
+normal and tumour samples, which freebayes can't handle.  For those samples,
+bamaddrg was used to stream the BAMS, replace the RGs, and stream directly into
+FB with 
+
+`bamaddrg -b $(VARIANT_BAM) -c -s $(VARIANT_SAMPLE_NAME) -r variant -b $(BASE_BAM) -s $(BASE_SAMPLE_NAME) -r base`.
+
+In the remaining fifty cases, freebayes read directly from the BAM files.  In
+either case, the options used to generate somatic calls with Freebayes were:
+
+--pooled-discrete --pooled-continuous --min-alternate-fraction 0.1 --allele-balance-priors-off --genotype-qualities 
+
+and multiple freebayes jobs were run at once, one per chromosome (run using, eg, -r X).
+
+The per-chromosome freebayes runs were then combined (using vcflib's
+vcfcombine), multiallelic calls were split (using vcflib's vcfbreakmulti), and
+tagged by somatic status (using vcflib's vcfsamplediff).  Awk was used
+to pull out only the somatic calls, filtering out variants on unplaced
+chromosomes or those on mitocondrial DNA.  A similar filtering was done 
+of germline calls, requiring them to be mapped to chromosomes but also
+requiring a quality score of at least 5.
+
+Graph Concordance
+
+The freebayes calls were tested for consistency with the SGA string graph using
+both a deterministic and a probabilistic method.
+
+In each case, sga graph-concordance was run against the freebayes somatic and
+germline callsets, and used the BWT and SAI indices of the fastq files.  The
+results were leftaligned and normalized (using bcftools norm) and again
+variants on unplaced contigs were removed.  Using sga-dbsnp-filter, calls
+that were in dbSNP but were not in COSMIC were removed.  
+
+The filtered freebayes calls were then run through sga-somatic-variant-filters
+with --min-var-dp 4 --min-af 0.1, and meregd with the SGA-only calls using
+sga_freebayes_merge.pl --nograph_concordance and --min-quality=30 for the
+original graph concordance and 20 for the probabilistic model.  Sites with
+anything other than PASS in the FILTER record were stripped out with awk.
+
+The outputs from the earlier and newer graph-concordance steps were sorted with
+vcfsort, bgziped, and indexed, and then merged with bcftools merge.  Separate
+indel and snv_mnv submission files were made with vcflibs' vcfindels and awk
+(testing to see if the REF and ALT records were the same length).
+
+
+Sample pairs with BAMs that needed the read group fields replaced:
+
+000e9e28-7d6d-44f5-b637-ddbd62699db7
+043cce76-19ef-43ee-8876-e2ae6556254d
+249a5ecb-e9f7-4211-927e-02ccaf4f9e1e
+24ab6651-8dd0-4d99-92d2-4d87bced077e
+290d8791-2515-4baa-9c5f-60f6ec97f33a
+4aaf156f-32e1-43eb-ae73-424c543c2c1b
+5ebc0a85-09b3-4f93-b484-6e4581d17db9
+911ce07d-5c8d-42e4-b85a-69038a15fd13
+97449717-88cf-4caf-b4f3-d70f1bf7097d
+ab98704c-5a3d-494d-ba3b-85a5c37b0828
+bdffc6fb-0da3-47aa-ab87-66712732e0f6
+e1f16576-9102-44de-88ed-892be7340067
+e39c1daa-c784-4587-ae64-34fe57c73f2e

@@ -1,0 +1,5 @@
+#!/bin/bash
+
+dirs=$( ./checkprereqs  | grep PASS | cut -d : -f 1 | sort -n -k 3 -t "-" )
+
+parallel -j 24 ./graph-case.sh ::: ${dirs}

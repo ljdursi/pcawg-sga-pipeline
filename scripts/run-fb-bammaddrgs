@@ -1,0 +1,7 @@
+#!/bin/bash
+
+#Only those for whom FB won't work with BAMs as is because of same RG IDs in samples
+#dirs="COAD-US-9 COAD-US-10 KICH-US-19 KICH-US-20 KIRC-US-21 KIRP-US-23 OV-US-30 READ-US-36 LIHC-US-47 LIHC-US-48 LIHC-US-49 READ-US-50 HNSC-US-56"
+dirs="COAD-US-9 COAD-US-10 KICH-US-19 KICH-US-20 KIRC-US-21 KIRP-US-23 OV-US-30 READ-US-36 LIHC-US-47 LIHC-US-48 LIHC-US-49 READ-US-50"
+
+parallel -j 12 ./fb-bamaddrgs-case ::: ${dirs}

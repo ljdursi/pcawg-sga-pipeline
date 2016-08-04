@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# get right column from header
+col=$( head -n 1 train2b.csv | awk -F, '{for (i=1;i<=NF;i++) if ($i~"Tumour Analysis ID") print i;}' )
+
+for run in $@
+do
+    # for each run, find one of the bams from filelist2.csv and use that to find
+    # the row in the train2b.csv file
+    grep $run filelist2.txt | cut -f 2 -d " " | grep -f - train2b.csv | cut -f ${col} -d ,
+done

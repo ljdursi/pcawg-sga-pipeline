@@ -1,0 +1,75 @@
+#!/bin/bash
+
+# Copy the vcf files over, in the file format described by
+# https://wiki.oicr.on.ca/display/PANCANCER/PCAWG+file+formats+and+naming+conventions
+
+PIPELINE=oicr_sga_2
+DATE=$( date +%Y%m%d )
+TYPE="somatic"
+
+if [ ! -z "$1" ]
+then
+    prefix="$1."
+    SUBMISSIONDIR="merged.submission.$1"
+else
+    prefix=""
+    SUBMISSIONDIR="merged.submission"
+fi
+
+if [ "$2" == "oldfb" ]
+then
+    SUBMISSIONDIR="${SUBMISSIONDIR}.oldfb"
+    suffix="oldfb."
+else
+    suffix=""
+fi
+
+if [ ! -d ${SUBMISSIONDIR} ]
+then
+    mkdir ${SUBMISSIONDIR}
+fi
+
+function fixVCF() {
+    sed -e '/^##bcftools/d' |\
+        cut -f 1-9 |\
+        awk '/^##/{print $0} /^#CHROM/{printf "%s\tNORMAL\tTUMOR\n",$0} /^[0-9XY]/{printf "%s\t0/0\t0/1\n",$0}'
+}
+
+for dir in *-*-*
+do 
+    if [ -d $dir ] 
+    then 
+        input_file_newgraph=${dir}/${dir}.${prefix}merged.${suffix}passed.vcf
+        input_file_oldgraph=${dir}/${dir}.30.oldmerged.${suffix}passed.vcf
+        if [ -s "${input_file_newgraph}" ] && [ -s "${input_file_oldgraph}" ]
+        then
+            echo $dir
+            combined_file=${dir}/${dir}.${prefix}combined.merged.${suffix}passed.vcf
+            newgraph_sorted=${dir}/$( basename $input_file_newgraph .vcf).sorted.vcf
+            oldgraph_sorted=${dir}/$( basename $input_file_oldgraph .vcf).sorted.vcf
+
+            samplename=$( ./sample-from-run ${dir} )
+            meta=${samplename}.${PIPELINE}.${DATE}.${TYPE}
+
+            indel_file=${SUBMISSIONDIR}/${meta}.indel.vcf
+            snv_file=${SUBMISSIONDIR}/${meta}.snv_mnv.vcf
+
+            vcfsort ${input_file_newgraph} | bgzip >  ${newgraph_sorted}.gz
+            vcfsort ${input_file_oldgraph} | bgzip >  ${oldgraph_sorted}.gz
+            tabix -p vcf  ${newgraph_sorted}.gz
+            tabix -p vcf  ${oldgraph_sorted}.gz
+
+            bcftools merge --force-samples ${newgraph_sorted}.gz ${oldgraph_sorted}.gz | fixVCF | bgzip > ${combined_file}.gz
+            tabix -p vcf ${combined_file}.gz 
+
+            zcat ${combined_file}.gz | vcfindels > ${indel_file}
+            bgzip ${indel_file}
+            tabix -p vcf ${indel_file}.gz
+
+            zcat ${combined_file}.gz | awk '$1 ~ /#/ || length($4) == length($5)' > ${snv_file}
+            bgzip ${snv_file}
+            tabix -p vcf ${snv_file}.gz
+        fi
+    fi
+done
+
